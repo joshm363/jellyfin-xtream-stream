@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dispatcharr VOD Search</title>
+    <style>
+        #DispatcharrSearchPage .vodResults {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1em;
+            margin-top: 1em;
+        }
+        #DispatcharrSearchPage .vodCard {
+            width: 160px;
+            cursor: pointer;
+        }
+        #DispatcharrSearchPage .vodCard img {
+            width: 100%;
+            border-radius: 6px;
+            background: #222;
+        }
+        #DispatcharrSearchPage .vodCard .title {
+            font-size: 0.9em;
+            margin-top: 0.25em;
+        }
+        #DispatcharrSearchPage video {
+            width: 100%;
+            max-height: 60vh;
+            margin-top: 1em;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="DispatcharrSearchPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection">
+                    <h2>Search Dispatcharr VOD</h2>
+                    <p>Search lives, on-demand &mdash; nothing is synced to your library.</p>
+                </div>
+
+                <div class="inputContainer">
+                    <input id="DispatcharrSearchInput" type="text" is="emby-input" label="Search title" />
+                </div>
+                <button id="DispatcharrSearchButton" is="emby-button" type="button" class="raised button-submit block">
+                    <span>Search</span>
+                </button>
+
+                <div id="DispatcharrResults" class="vodResults"></div>
+
+                <video id="DispatcharrPlayer" controls></video>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            function getPage() {
+                return document.querySelector("#DispatcharrSearchPage");
+            }
+
+            function doSearch() {
+                var page = getPage();
+                var query = page.querySelector("#DispatcharrSearchInput").value.trim();
+                var resultsEl = page.querySelector("#DispatcharrResults");
+
+                if (!query) {
+                    resultsEl.innerHTML = "";
+                    return;
+                }
+
+                resultsEl.innerHTML = "<p>Searching...</p>";
+
+                ApiClient.getJSON(ApiClient.getUrl("Dispatcharr/Search", { query: query })).then(function (data) {
+                    resultsEl.innerHTML = "";
+
+                    if (!data.items || data.items.length === 0) {
+                        resultsEl.innerHTML = "<p>No results.</p>";
+                        return;
+                    }
+
+                    data.items.forEach(function (item) {
+                        var card = document.createElement("div");
+                        card.className = "vodCard";
+
+                        var img = document.createElement("img");
+                        img.src = item.posterUrl || "";
+                        img.alt = item.title;
+
+                        var title = document.createElement("div");
+                        title.className = "title";
+                        title.textContent = item.year ? (item.title + " (" + item.year + ")") : item.title;
+
+                        card.appendChild(img);
+                        card.appendChild(title);
+
+                        card.addEventListener("click", function () {
+                            playItem(item);
+                        });
+
+                        resultsEl.appendChild(card);
+                    });
+                }).catch(function (err) {
+                    resultsEl.innerHTML = "<p>Search failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
+                    console.error("Dispatcharr search failed", err);
+                });
+            }
+
+            function playItem(item) {
+                var page = getPage();
+                var player = page.querySelector("#DispatcharrPlayer");
+
+                var params = { type: item.type || "movie" };
+                if (item.streamId) {
+                    params.streamId = item.streamId;
+                }
+
+                var streamUrl = ApiClient.getUrl("Dispatcharr/Stream/" + encodeURIComponent(item.uuid), params);
+
+                player.src = streamUrl;
+                player.style.display = "block";
+                player.play().catch(function (err) {
+                    console.error("Playback failed", err);
+                });
+            }
+
+            document.querySelector("#DispatcharrSearchPage").addEventListener("pageshow", function () {
+                var page = getPage();
+                page.querySelector("#DispatcharrSearchButton").addEventListener("click", doSearch);
+                page.querySelector("#DispatcharrSearchInput").addEventListener("keydown", function (e) {
+                    if (e.key === "Enter") {
+                        doSearch();
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

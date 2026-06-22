@@ -1,0 +1,12 @@
+{
+  "category": "Channels",
+  "guid": "f1e1a8c0-9b1d-4f6a-9e3a-6c1d2b8a7e10",
+  "name": "Dispatcharr VOD",
+  "description": "Search and play VOD content from a Dispatcharr instance on demand. No bulk library sync or local STRM files - search hits Dispatcharr's API live and resolves a playable stream URL only for the title you select.",
+  "overview": "On-demand Dispatcharr VOD search channel.",
+  "owner": "your-github-username",
+  "targetAbi": "10.9.0.0",
+  "framework": "net8.0",
+  "version": "0.1.0.0",
+  "changelog": "Initial scaffold: live search against /api/vod/all, on-demand stream resolution via /proxy/vod/{type}/{uuid}."
+}
