@@ -34,6 +34,23 @@ namespace Jellyfin.Plugin.Dispatcharr.Configuration
         public int MaxSearchResults { get; set; } = 25;
 
         /// <summary>
+        /// Root folder where movie .strm files should be written.
+        /// Each selected title is saved as {title}/{title}.strm.
+        /// </summary>
+        public string MovieMediaLibraryPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Root folder where TV .strm files should be written.
+        /// Each selected title is saved as {title}/{title}.strm.
+        /// </summary>
+        public string TvMediaLibraryPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Dispatcharr profile id appended into proxy URLs for saved .strm files.
+        /// </summary>
+        public string ProfileId { get; set; } = string.Empty;
+
+        /// <summary>
         /// Request timeout, in seconds, for calls to Dispatcharr.
         /// </summary>
         public int RequestTimeoutSeconds { get; set; } = 10;

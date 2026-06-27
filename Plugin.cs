@@ -34,7 +34,10 @@ namespace Jellyfin.Plugin.Dispatcharr
             yield return new PluginPageInfo
             {
                 Name = Name,
-                EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace)
+                EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace),
+                // Listed first with EnableInMainMenu so Dashboard → Plugins → Settings opens
+                // this config form rather than the search page (Jellyfin 10.11 behavior).
+                EnableInMainMenu = true
             };
 
             yield return new PluginPageInfo

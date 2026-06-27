@@ -11,11 +11,14 @@
                     <div class="verticalSection">
                         <h2>Dispatcharr VOD Search</h2>
                         <p>Search Dispatcharr's VOD catalog directly and play titles on demand &mdash; no library sync required.</p>
+                        <button id="OpenDispatcharrSearch" is="emby-button" type="button" class="raised block emby-button">
+                            <span>Open Dispatcharr Search</span>
+                        </button>
                     </div>
 
                     <div class="inputContainer">
                         <input id="DispatcharrUrl" name="DispatcharrUrl" type="text" is="emby-input" label="Dispatcharr URL (e.g. http://192.168.1.50:9191)" />
-                        <div class="fieldDescription">No trailing slash.</div>
+                        <div class="fieldDescription">Base URL only (e.g. http://192.168.1.50:9191). Do not include /api.</div>
                     </div>
 
                     <div class="inputContainer">
@@ -36,62 +39,115 @@
                     </div>
 
                     <div class="inputContainer">
+                        <input id="MovieMediaLibraryPath" name="MovieMediaLibraryPath" type="text" is="emby-input" label="Movie library folder" />
+                        <div class="fieldDescription">Root folder where movie .strm files are written as {title}/{title}.strm.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <input id="TvMediaLibraryPath" name="TvMediaLibraryPath" type="text" is="emby-input" label="TV library folder" />
+                        <div class="fieldDescription">Root folder where TV .strm files are written as {title}/{title}.strm.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <input id="ProfileId" name="ProfileId" type="text" is="emby-input" label="Dispatcharr profile id" />
+                        <div class="fieldDescription">Used in saved proxy URLs as /proxy/vod/{type}/{uuid}/{profileId}.</div>
+                    </div>
+
+                    <div class="inputContainer">
                         <input id="RequestTimeoutSeconds" name="RequestTimeoutSeconds" type="number" is="emby-input" label="Request timeout (seconds)" min="1" max="60" />
                     </div>
 
                     <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block">
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
                         </button>
                     </div>
                 </form>
             </div>
         </div>
-    </div>
 
-    <script type="text/javascript">
-        var DispatcharrPluginId = "f1e1a8c0-9b1d-4f6a-9e3a-6c1d2b8a7e10";
+        <script type="text/javascript">
+            var DispatcharrConfig = {
+                pluginUniqueId: "f1e1a8c0-9b1d-4f6a-9e3a-6c1d2b8a7e10"
+            };
 
-        (function () {
-            var pageId = "DispatcharrConfigPage";
-
-            function getPage() {
-                return document.querySelector("#" + pageId);
+            function getConfigPage() {
+                return document.querySelector("#DispatcharrConfigPage");
             }
 
-            document.querySelector("#DispatcharrConfigPage").addEventListener("pageshow", function () {
+            function setFieldValue(id, value) {
+                var field = getConfigPage().querySelector(id);
+                if (field) {
+                    field.value = value;
+                }
+            }
+
+            function loadConfig() {
                 Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(DispatcharrPluginId).then(function (config) {
-                    var page = getPage();
-                    page.querySelector("#DispatcharrUrl").value = config.DispatcharrUrl || "";
-                    page.querySelector("#ApiKey").value = config.ApiKey || "";
-                    page.querySelector("#XtreamUsername").value = config.XtreamUsername || "";
-                    page.querySelector("#XtreamPassword").value = config.XtreamPassword || "";
-                    page.querySelector("#MaxSearchResults").value = config.MaxSearchResults || 25;
-                    page.querySelector("#RequestTimeoutSeconds").value = config.RequestTimeoutSeconds || 10;
-                    Dashboard.hideLoadingMsg();
-                });
+                return ApiClient.getPluginConfiguration(DispatcharrConfig.pluginUniqueId)
+                    .then(function (config) {
+                        setFieldValue("#DispatcharrUrl", config.DispatcharrUrl || "");
+                        setFieldValue("#ApiKey", config.ApiKey || "");
+                        setFieldValue("#XtreamUsername", config.XtreamUsername || "");
+                        setFieldValue("#XtreamPassword", config.XtreamPassword || "");
+                        setFieldValue("#MaxSearchResults", config.MaxSearchResults || 25);
+                        setFieldValue("#MovieMediaLibraryPath", config.MovieMediaLibraryPath || "");
+                        setFieldValue("#TvMediaLibraryPath", config.TvMediaLibraryPath || "");
+                        setFieldValue("#ProfileId", config.ProfileId || "");
+                        setFieldValue("#RequestTimeoutSeconds", config.RequestTimeoutSeconds || 10);
+                    })
+                    .catch(function (err) {
+                        console.error("Dispatcharr config load failed", err);
+                        Dashboard.alert("Failed to load plugin settings. Check the browser console (F12) for details.");
+                    })
+                    .finally(function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+            }
+
+            function onPageShow() {
+                loadConfig();
+            }
+
+            getConfigPage().addEventListener("pageshow", onPageShow);
+            getConfigPage().addEventListener("viewshow", onPageShow);
+
+            getConfigPage().querySelector("#OpenDispatcharrSearch").addEventListener("click", function () {
+                Dashboard.navigate("configurationpage?name=DispatcharrSearch");
             });
 
-            document.querySelector("#DispatcharrConfigForm").addEventListener("submit", function (e) {
+            getConfigPage().querySelector("#DispatcharrConfigForm").addEventListener("submit", function (e) {
                 e.preventDefault();
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(DispatcharrPluginId).then(function (config) {
-                    var page = getPage();
-                    config.DispatcharrUrl = page.querySelector("#DispatcharrUrl").value.replace(/\/+$/, "");
-                    config.ApiKey = page.querySelector("#ApiKey").value;
-                    config.XtreamUsername = page.querySelector("#XtreamUsername").value;
-                    config.XtreamPassword = page.querySelector("#XtreamPassword").value;
-                    config.MaxSearchResults = parseInt(page.querySelector("#MaxSearchResults").value, 10) || 25;
-                    config.RequestTimeoutSeconds = parseInt(page.querySelector("#RequestTimeoutSeconds").value, 10) || 10;
 
-                    ApiClient.updatePluginConfiguration(DispatcharrPluginId, config).then(function (result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(DispatcharrConfig.pluginUniqueId)
+                    .then(function (config) {
+                        var page = getConfigPage();
+                        config.DispatcharrUrl = page.querySelector("#DispatcharrUrl").value.replace(/\/+$/, "");
+                        config.ApiKey = page.querySelector("#ApiKey").value;
+                        config.XtreamUsername = page.querySelector("#XtreamUsername").value;
+                        config.XtreamPassword = page.querySelector("#XtreamPassword").value;
+                        config.MaxSearchResults = parseInt(page.querySelector("#MaxSearchResults").value, 10) || 25;
+                        config.MovieMediaLibraryPath = page.querySelector("#MovieMediaLibraryPath").value;
+                        config.TvMediaLibraryPath = page.querySelector("#TvMediaLibraryPath").value;
+                        config.ProfileId = page.querySelector("#ProfileId").value;
+                        config.RequestTimeoutSeconds = parseInt(page.querySelector("#RequestTimeoutSeconds").value, 10) || 10;
+
+                        return ApiClient.updatePluginConfiguration(DispatcharrConfig.pluginUniqueId, config);
+                    })
+                    .then(function () {
+                        Dashboard.processPluginConfigurationUpdateResult();
+                        return loadConfig();
+                    })
+                    .catch(function (err) {
+                        console.error("Dispatcharr config save failed", err);
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert("Failed to save plugin settings. Make sure you are logged in as an admin and that Jellyfin can write to its plugin config folder.");
                     });
-                });
+
                 return false;
             });
-        })();
-    </script>
+        </script>
+    </div>
 </body>
 </html>

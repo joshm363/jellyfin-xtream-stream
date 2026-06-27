@@ -21,4 +21,11 @@
     <EmbeddedResource Include="Pages\searchPage.html" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Nested clone of this repo; exclude so dotnet does not compile duplicate types. -->
+    <Compile Remove="Jellyfin.Plugin.Dispatcharr/**" />
+    <EmbeddedResource Remove="Jellyfin.Plugin.Dispatcharr/**" />
+    <None Remove="Jellyfin.Plugin.Dispatcharr/**" />
+  </ItemGroup>
+
 </Project>

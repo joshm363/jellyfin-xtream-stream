@@ -31,7 +31,7 @@
     </style>
 </head>
 <body>
-    <div id="DispatcharrSearchPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+    <div id="DispatcharrSearchPage" data-role="page" class="page type-interior" data-require="emby-input,emby-button">
         <div data-role="content">
             <div class="content-primary">
                 <div class="verticalSection">
@@ -42,7 +42,7 @@
                 <div class="inputContainer">
                     <input id="DispatcharrSearchInput" type="text" is="emby-input" label="Search title" />
                 </div>
-                <button id="DispatcharrSearchButton" is="emby-button" type="button" class="raised button-submit block">
+                <button id="DispatcharrSearchButton" is="emby-button" type="button" class="raised button-submit block emby-button">
                     <span>Search</span>
                 </button>
 
@@ -51,89 +51,137 @@
                 <video id="DispatcharrPlayer" controls></video>
             </div>
         </div>
-    </div>
 
-    <script type="text/javascript">
-        (function () {
-            function getPage() {
-                return document.querySelector("#DispatcharrSearchPage");
-            }
+        <script type="text/javascript">
+            (function () {
+                var wired = false;
 
-            function doSearch() {
-                var page = getPage();
-                var query = page.querySelector("#DispatcharrSearchInput").value.trim();
-                var resultsEl = page.querySelector("#DispatcharrResults");
-
-                if (!query) {
-                    resultsEl.innerHTML = "";
-                    return;
+                function getPage() {
+                    return document.querySelector("#DispatcharrSearchPage");
                 }
 
-                resultsEl.innerHTML = "<p>Searching...</p>";
+                function getQuery() {
+                    var input = getPage().querySelector("#DispatcharrSearchInput");
+                    var value = (input && input.value ? input.value : "").trim();
+                    return value.replace(/^["']+|["']+$/g, "");
+                }
 
-                ApiClient.getJSON(ApiClient.getUrl("Dispatcharr/Search", { query: query })).then(function (data) {
-                    resultsEl.innerHTML = "";
+                function doSearch() {
+                    var page = getPage();
+                    var query = getQuery();
+                    var resultsEl = page.querySelector("#DispatcharrResults");
 
-                    if (!data.items || data.items.length === 0) {
-                        resultsEl.innerHTML = "<p>No results.</p>";
+                    if (!query) {
+                        resultsEl.innerHTML = "<p>Enter a title to search.</p>";
                         return;
                     }
 
-                    data.items.forEach(function (item) {
-                        var card = document.createElement("div");
-                        card.className = "vodCard";
+                    resultsEl.innerHTML = "<p>Searching...</p>";
 
-                        var img = document.createElement("img");
-                        img.src = item.posterUrl || "";
-                        img.alt = item.title;
+                    ApiClient.getJSON(ApiClient.getUrl("Dispatcharr/Search", { query: query }))
+                        .then(function (data) {
+                            resultsEl.innerHTML = "";
 
-                        var title = document.createElement("div");
-                        title.className = "title";
-                        title.textContent = item.year ? (item.title + " (" + item.year + ")") : item.title;
+                            if (!data.items || data.items.length === 0) {
+                                resultsEl.innerHTML = "<p>No results.</p>";
+                                return;
+                            }
 
-                        card.appendChild(img);
-                        card.appendChild(title);
+                            data.items.forEach(function (item) {
+                                var card = document.createElement("div");
+                                card.className = "vodCard";
 
-                        card.addEventListener("click", function () {
-                            playItem(item);
+                                var img = document.createElement("img");
+                                img.src = item.posterUrl || "";
+                                img.alt = item.title;
+
+                                var title = document.createElement("div");
+                                title.className = "title";
+                                title.textContent = displayLabel(item);
+
+                                card.appendChild(img);
+                                card.appendChild(title);
+
+                                card.addEventListener("click", function () {
+                                    playItem(item);
+                                });
+
+                                resultsEl.appendChild(card);
+                            });
+                        })
+                        .catch(function (err) {
+                            resultsEl.innerHTML = "<p>Search failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
+                            console.error("Dispatcharr search failed", err);
                         });
-
-                        resultsEl.appendChild(card);
-                    });
-                }).catch(function (err) {
-                    resultsEl.innerHTML = "<p>Search failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
-                    console.error("Dispatcharr search failed", err);
-                });
-            }
-
-            function playItem(item) {
-                var page = getPage();
-                var player = page.querySelector("#DispatcharrPlayer");
-
-                var params = { type: item.type || "movie" };
-                if (item.streamId) {
-                    params.streamId = item.streamId;
                 }
 
-                var streamUrl = ApiClient.getUrl("Dispatcharr/Stream/" + encodeURIComponent(item.uuid), params);
+                function displayLabel(item) {
+                    var typeLabel = item.type && item.type !== "movie" ? " [" + item.type + "]" : "";
+                    return item.year ? (item.title + " (" + item.year + ")" + typeLabel) : (item.title + typeLabel);
+                }
 
-                player.src = streamUrl;
-                player.style.display = "block";
-                player.play().catch(function (err) {
-                    console.error("Playback failed", err);
-                });
-            }
+                function playItem(item) {
+                    var page = getPage();
+                    page.querySelector("#DispatcharrPlayer").style.display = "none";
+                    var resultsEl = page.querySelector("#DispatcharrResults");
 
-            document.querySelector("#DispatcharrSearchPage").addEventListener("pageshow", function () {
-                var page = getPage();
-                page.querySelector("#DispatcharrSearchButton").addEventListener("click", doSearch);
-                page.querySelector("#DispatcharrSearchInput").addEventListener("keydown", function (e) {
-                    if (e.key === "Enter") {
-                        doSearch();
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("Dispatcharr/Save"),
+                        contentType: "application/json",
+                        data: JSON.stringify({
+                            contentId: item.contentId,
+                            uuid: item.uuid,
+                            title: item.title,
+                            type: item.type || "movie",
+                            searchQuery: getQuery()
+                        })
+                    }).then(function (result) {
+                        var message = result.message || "Saved successfully.";
+                        var path = result.path ? ("<br/><small>" + result.path + "</small>") : "";
+                        var confidence = result.confidence ? ("<br/><small>Match: " + result.confidence + (result.confidenceScore ? " (" + Math.round(result.confidenceScore * 100) + "%)" : "") + "</small>") : "";
+                        var warning = result.matchWarning ? ("<br/><small>" + result.matchWarning + "</small>") : "";
+                        resultsEl.innerHTML = "<p>" + message + path + confidence + warning + "</p>";
+                    })
+                        .catch(function (err) {
+                            console.error("Dispatcharr save failed details", err);
+                            console.error("Dispatcharr save failed", err);
+                            resultsEl.innerHTML = "<p>Save failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
+                        });
+                }
+
+                function wirePage() {
+                    if (wired) {
+                        return;
                     }
-                });
-            });
-        })();
-    </script>
+
+                    var page = getPage();
+                    if (!page) {
+                        console.error("Dispatcharr search page element not found.");
+                        return;
+                    }
+
+                    page.querySelector("#DispatcharrSearchButton").addEventListener("click", doSearch);
+                    page.querySelector("#DispatcharrSearchInput").addEventListener("keydown", function (e) {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            doSearch();
+                        }
+                    });
+
+                    wired = true;
+                }
+
+                function onPageShow() {
+                    wirePage();
+                }
+
+                var page = getPage();
+                page.addEventListener("pageshow", onPageShow);
+                page.addEventListener("viewshow", onPageShow);
+                wirePage();
+            })();
+        </script>
+    </div>
 </body>
 </html>

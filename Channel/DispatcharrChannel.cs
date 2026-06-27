@@ -91,7 +91,9 @@ namespace Jellyfin.Plugin.Dispatcharr.Channel
                 Name = item.Year.HasValue ? $"{item.Title} ({item.Year})" : item.Title,
                 Overview = item.Overview,
                 Type = ChannelItemType.Media,
-                ContentType = item.Type == "episode" ? ChannelMediaContentType.Episode : ChannelMediaContentType.Movie,
+                ContentType = item.Type == "episode" || item.Type == "series"
+                    ? ChannelMediaContentType.Episode
+                    : ChannelMediaContentType.Movie,
                 MediaType = ChannelMediaType.Video,
                 ImageUrl = item.PosterUrl,
                 IsLiveStream = false,
