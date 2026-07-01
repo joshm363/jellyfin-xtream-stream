@@ -1,0 +1,12 @@
+services:
+  savestrm:
+    build: .
+    container_name: savestrm
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+    volumes:
+      - ./data:/app/data
+      - /path/to/media/libraries:/media
+    restart: unless-stopped

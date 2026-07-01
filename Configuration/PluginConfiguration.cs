@@ -51,6 +51,11 @@ namespace Jellyfin.Plugin.Dispatcharr.Configuration
         public string ProfileId { get; set; } = string.Empty;
 
         /// <summary>
+        /// TMDb API key used to fetch title details for preview modals.
+        /// </summary>
+        public string TmdbApiKey { get; set; } = string.Empty;
+
+        /// <summary>
         /// Request timeout, in seconds, for calls to Dispatcharr.
         /// </summary>
         public int RequestTimeoutSeconds { get; set; } = 10;

@@ -32,13 +32,18 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
         public string? PosterUrl { get; set; }
 
         public string? Overview { get; set; }
+
     }
 
     public class DispatcharrEpisodeItem
     {
+        public string SeriesUuid { get; set; } = string.Empty;
+
         public string Uuid { get; set; } = string.Empty;
 
         public long? StreamId { get; set; }
+
+        public List<long> StreamIds { get; set; } = new List<long>();
 
         public string Title { get; set; } = string.Empty;
 
@@ -50,6 +55,8 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
     public class DispatcharrProviderInfoResponse
     {
         public long? StreamId { get; set; }
+
+        public string? TmdbId { get; set; }
     }
 
     public class DispatcharrProviderOption
@@ -59,12 +66,36 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
         public string? Name { get; set; }
     }
 
+    public class TmdbDetails
+    {
+        public string Title { get; set; } = string.Empty;
+
+        public string? Overview { get; set; }
+
+        public string? PosterPath { get; set; }
+
+        public string? BackdropPath { get; set; }
+
+        public string? ReleaseDate { get; set; }
+
+        public string? FirstAirDate { get; set; }
+
+        public string? Runtime { get; set; }
+
+        public string? Status { get; set; }
+
+        public string? Tagline { get; set; }
+
+        public string? VoteAverage { get; set; }
+    }
+
     /// <summary>
     /// Thin client around Dispatcharr's native REST API (for search) and its
     /// VOD proxy endpoint (for stream resolution).
     /// </summary>
     public class DispatcharrClient
     {
+        private const string HardcodedTmdbApiKey = "d76ceee8e6ed26b7ffc266f5b51a644d";
         private readonly HttpClient _httpClient;
         private readonly ILogger<DispatcharrClient> _logger;
 
@@ -257,8 +288,38 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
 
             var baseUrl = NormalizeBaseUrl(config.DispatcharrUrl);
             var contentTypeSegment = item.Type == "movie" ? "movies" : "series";
-            var requestUrl = EnsureTrailingSlash($"{baseUrl}/api/vod/{contentTypeSegment}/{item.ContentId}/provider");
-            return await FetchProviderStreamIdsAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+            if (item.Type == "movie")
+            {
+                var movieRequestUrl = EnsureTrailingSlash($"{baseUrl}/api/vod/{contentTypeSegment}/{item.ContentId}/provider-info");
+                var streamId = await FetchProviderStreamIdAsync(movieRequestUrl, cancellationToken).ConfigureAwait(false);
+                return streamId.HasValue
+                    ? new List<DispatcharrProviderOption>
+                    {
+                        new DispatcharrProviderOption
+                        {
+                            StreamId = streamId,
+                            Name = "provider-info"
+                        }
+                    }
+                    : new List<DispatcharrProviderOption>();
+            }
+
+            var providersRequestUrl = EnsureTrailingSlash($"{baseUrl}/api/vod/{contentTypeSegment}/{item.ContentId}/providers");
+            return await FetchProviderStreamIdsAsync(providersRequestUrl, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<DispatcharrProviderInfoResponse?> GetProviderInfoAsync(DispatcharrVodItem item, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config is null || string.IsNullOrWhiteSpace(config.DispatcharrUrl) || item.ContentId <= 0)
+            {
+                return null;
+            }
+
+            var baseUrl = NormalizeBaseUrl(config.DispatcharrUrl);
+            var contentTypeSegment = item.Type == "movie" ? "movies" : "series";
+            var requestUrl = EnsureTrailingSlash($"{baseUrl}/api/vod/{contentTypeSegment}/{item.ContentId}/provider-info");
+            return await FetchProviderInfoAsync(requestUrl, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<List<DispatcharrEpisodeItem>> GetSeriesEpisodesAsync(int seriesId, CancellationToken cancellationToken)
@@ -279,6 +340,51 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
             }
 
             return new List<DispatcharrEpisodeItem>();
+        }
+
+        public async Task<TmdbDetails?> GetTmdbDetailsAsync(string tmdbId, string type, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+            var tmdbApiKey = config?.TmdbApiKey?.Trim();
+            if (string.IsNullOrWhiteSpace(tmdbApiKey))
+            {
+                tmdbApiKey = HardcodedTmdbApiKey;
+            }
+
+            if (string.IsNullOrWhiteSpace(tmdbApiKey) || string.IsNullOrWhiteSpace(tmdbId))
+            {
+                return null;
+            }
+
+            var endpointType = string.Equals(type, "series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
+            var url = $"https://api.themoviedb.org/3/{endpointType}/{Uri.EscapeDataString(tmdbId.Trim())}?api_key={Uri.EscapeDataString(tmdbApiKey)}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TMDb request to {Url} returned {StatusCode}: {Body}", url, (int)response.StatusCode, Truncate(body, 500));
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            return new TmdbDetails
+            {
+                Title = GetString(root, "title") ?? GetString(root, "name") ?? string.Empty,
+                Overview = GetString(root, "overview"),
+                PosterPath = GetString(root, "poster_path"),
+                BackdropPath = GetString(root, "backdrop_path"),
+                ReleaseDate = GetString(root, "release_date"),
+                FirstAirDate = GetString(root, "first_air_date"),
+                Status = GetString(root, "status"),
+                Tagline = GetString(root, "tagline"),
+                VoteAverage = GetString(root, "vote_average"),
+                Runtime = GetInt32(root, "runtime")?.ToString()
+            };
         }
 
         internal static string NormalizeBaseUrl(string url)
@@ -395,6 +501,11 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
                 return streamId;
             }
 
+            if (TryGetStringByName(root, "tmdb_id", out var tmdbId))
+            {
+                _logger.LogInformation("Dispatcharr provider-info response contains tmdb_id={TmdbId}.", tmdbId);
+            }
+
             if (TryFindLongRecursive(root, "stream_id", out streamId))
             {
                 return streamId;
@@ -402,6 +513,34 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
 
             _logger.LogWarning("Dispatcharr provider-info response from {Url} did not contain a stream_id.", requestUrl);
             return null;
+        }
+
+        private async Task<DispatcharrProviderInfoResponse?> FetchProviderInfoAsync(string requestUrl, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
+            if (!string.IsNullOrWhiteSpace(config?.ApiKey))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("ApiKey", config.ApiKey);
+            }
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Dispatcharr provider-info request to {Url} returned {StatusCode}: {Body}", requestUrl, (int)response.StatusCode, Truncate(body, 500));
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            return new DispatcharrProviderInfoResponse
+            {
+                StreamId = TryGetLongByName(root, "stream_id", out var streamId) ? streamId : (TryFindLongRecursive(root, "stream_id", out streamId) ? streamId : null),
+                TmdbId = TryGetStringByName(root, "tmdb_id", out var tmdbId) ? tmdbId : null
+            };
         }
 
         private async Task<List<DispatcharrProviderOption>> FetchProviderStreamIdsAsync(string requestUrl, CancellationToken cancellationToken)
@@ -461,6 +600,7 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
                 .Select(group => group.First())
                 .ToList();
         }
+
 
         private static void CollectProviderStreamIds(JsonElement element, List<DispatcharrProviderOption> results, int fallbackIndex)
         {
@@ -540,6 +680,16 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
 
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.String)
+            {
+                var innerJson = root.GetString();
+                if (!string.IsNullOrWhiteSpace(innerJson))
+                {
+                    using var innerDoc = JsonDocument.Parse(innerJson);
+                    root = innerDoc.RootElement.Clone();
+                }
+            }
 
             if (!TryGetResultsArray(root, out var itemsElement) || itemsElement.ValueKind != JsonValueKind.Array)
             {
@@ -788,6 +938,26 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
             };
         }
 
+        private static string? GetString(JsonElement element, string parentPropertyName, string childPropertyName)
+        {
+            if (element.ValueKind != JsonValueKind.Object
+                || !element.TryGetProperty(parentPropertyName, out var parent)
+                || parent.ValueKind != JsonValueKind.Object
+                || !parent.TryGetProperty(childPropertyName, out var child))
+            {
+                return null;
+            }
+
+            return child.ValueKind switch
+            {
+                JsonValueKind.String => child.GetString(),
+                JsonValueKind.Number => child.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
+        }
+
         private static int? GetInt32(JsonElement element, string propertyName)
         {
             if (element.ValueKind != JsonValueKind.Object
@@ -864,6 +1034,32 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
             return false;
         }
 
+        private static bool TryGetStringByName(JsonElement element, string propertyName, out string value)
+        {
+            value = string.Empty;
+
+            if (element.ValueKind != JsonValueKind.Object
+                || !element.TryGetProperty(propertyName, out var prop)
+                || prop.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return false;
+            }
+
+            if (prop.ValueKind == JsonValueKind.String)
+            {
+                value = prop.GetString() ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(value);
+            }
+
+            if (prop.ValueKind == JsonValueKind.Number)
+            {
+                value = prop.GetRawText();
+                return !string.IsNullOrWhiteSpace(value);
+            }
+
+            return false;
+        }
+
         private static bool TryFindLongRecursive(JsonElement element, string propertyName, out long value)
         {
             value = default;
@@ -907,14 +1103,41 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
                     return null;
                 }
 
+                var seriesUuid = GetString(element, "series.uuid")
+                    ?? GetString(element, "series", "uuid")
+                    ?? GetString(element, "series_uuid")
+                    ?? GetString(element, "seriesUuid")
+                    ?? string.Empty;
+
                 var title = GetString(element, "name") ?? GetString(element, "title") ?? $"Episode {fallbackEpisodeNumber}";
                 var seasonNumber = GetInt32(element, "season_number") ?? GetInt32(element, "season") ?? 1;
                 var episodeNumber = GetInt32(element, "episode_number") ?? GetInt32(element, "episode") ?? fallbackEpisodeNumber;
+                var streamId = GetInt64(element, "stream_id")
+                    ?? GetInt64(element, "streamId")
+                    ?? GetInt64(element, "provider_stream_id")
+                    ?? GetInt64(element, "providerStreamId")
+                    ?? GetInt64(element, "vod_stream_id")
+                    ?? GetInt64(element, "vodStreamId")
+                    ?? TryFindStreamIdInProviders(element);
+                var streamIds = GetStreamIdsFromProviders(element);
+                if (!streamId.HasValue && streamIds.Count > 0)
+                {
+                    streamId = streamIds[0];
+                }
+
+                if (!streamId.HasValue)
+                {
+                    _logger.LogWarning(
+                        "Dispatcharr episode item did not contain a stream id. Episode payload: {Payload}",
+                        element.GetRawText());
+                }
 
                 return new DispatcharrEpisodeItem
                 {
+                    SeriesUuid = seriesUuid,
                     Uuid = uuid,
-                    StreamId = GetInt64(element, "stream_id"),
+                    StreamId = streamId,
+                    StreamIds = streamIds,
                     Title = title,
                     SeasonNumber = Math.Max(1, seasonNumber),
                     EpisodeNumber = Math.Max(1, episodeNumber)
@@ -924,6 +1147,47 @@ namespace Jellyfin.Plugin.Dispatcharr.Services
             {
                 return null;
             }
+        }
+
+        private static long? TryFindStreamIdInProviders(JsonElement element)
+        {
+            var streamIds = GetStreamIdsFromProviders(element);
+            return streamIds.Count > 0 ? streamIds[0] : null;
+        }
+
+        private static List<long> GetStreamIdsFromProviders(JsonElement element)
+        {
+            var streamIds = new List<long>();
+            if (element.ValueKind != JsonValueKind.Object
+                || !element.TryGetProperty("providers", out var providersElement)
+                || providersElement.ValueKind != JsonValueKind.Array)
+            {
+                return streamIds;
+            }
+
+            foreach (var provider in providersElement.EnumerateArray())
+            {
+                var streamId = GetInt64(provider, "stream_id")
+                    ?? GetInt64(provider, "streamId");
+                if (streamId.HasValue)
+                {
+                    streamIds.Add(streamId.Value);
+                    continue;
+                }
+
+                if (provider.ValueKind == JsonValueKind.Object
+                    && provider.TryGetProperty("episode", out var episodeElement))
+                {
+                    streamId = GetInt64(episodeElement, "stream_id")
+                        ?? GetInt64(episodeElement, "streamId");
+                    if (streamId.HasValue)
+                    {
+                        streamIds.Add(streamId.Value);
+                    }
+                }
+            }
+
+            return streamIds;
         }
 
         private static string Truncate(string value, int maxLength)

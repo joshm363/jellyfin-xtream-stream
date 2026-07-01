@@ -4,23 +4,97 @@
     <title>Dispatcharr VOD Search</title>
     <style>
         #DispatcharrSearchPage .vodResults {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1em;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 0.6rem;
             margin-top: 1em;
         }
         #DispatcharrSearchPage .vodCard {
-            width: 160px;
+            width: 100%;
             cursor: pointer;
         }
         #DispatcharrSearchPage .vodCard img {
             width: 100%;
-            border-radius: 6px;
+            border-radius: 4px;
             background: #222;
+            aspect-ratio: 2 / 3;
+            object-fit: cover;
         }
         #DispatcharrSearchPage .vodCard .title {
-            font-size: 0.9em;
-            margin-top: 0.25em;
+            font-size: 0.78em;
+            margin-top: 0.2em;
+            line-height: 1.25;
+            min-height: 2.5em;
+        }
+        #DispatcharrSearchPage .vodCard .links {
+            display: flex;
+            gap: 0.25rem;
+            margin-top: 0.25rem;
+        }
+        #DispatcharrSearchPage .vodCard .links button {
+            flex: 1 1 0;
+            padding: 0.25rem 0.35rem;
+            min-height: 1.8rem;
+            font-size: 0.72em;
+        }
+        #DispatcharrSearchPage .resultsHeader {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-top: 0.75rem;
+        }
+        #DispatcharrSearchPage .resultsCount {
+            font-size: 0.8em;
+            opacity: 0.85;
+        }
+        #DispatcharrSearchPage .modalOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.72);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        #DispatcharrSearchPage .modalPanel {
+            width: min(920px, 100%);
+            max-height: min(90vh, 900px);
+            overflow: auto;
+            background: #111;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        #DispatcharrSearchPage .modalHero {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 1rem;
+        }
+        #DispatcharrSearchPage .modalHero img {
+            width: 100%;
+            border-radius: 6px;
+            aspect-ratio: 2 / 3;
+            object-fit: cover;
+            background: #222;
+        }
+        #DispatcharrSearchPage .modalTitle {
+            font-size: 1.2em;
+            margin: 0;
+        }
+        #DispatcharrSearchPage .modalMeta {
+            font-size: 0.85em;
+            opacity: 0.85;
+            margin-top: 0.2rem;
+        }
+        #DispatcharrSearchPage .modalActions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        #DispatcharrSearchPage .modalHero img {
+            cursor: pointer;
         }
         #DispatcharrSearchPage video {
             width: 100%;
@@ -46,15 +120,36 @@
                     <span>Search</span>
                 </button>
 
+                <div class="resultsHeader">
+                    <div class="resultsCount" id="DispatcharrResultsCount">0 found</div>
+                </div>
+
                 <div id="DispatcharrResults" class="vodResults"></div>
 
                 <video id="DispatcharrPlayer" controls></video>
+
+                <div id="DispatcharrModal" class="modalOverlay" aria-hidden="true">
+                    <div class="modalPanel">
+                        <div class="modalHero">
+                            <img id="DispatcharrModalPoster" alt="" />
+                            <div>
+                                <h3 id="DispatcharrModalTitle" class="modalTitle"></h3>
+                                <div id="DispatcharrModalMeta" class="modalMeta"></div>
+                            </div>
+                        </div>
+                        <div class="modalActions">
+                            <button id="DispatcharrModalCancel" type="button" class="emby-button">Cancel</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <script type="text/javascript">
             (function () {
                 var wired = false;
+                var previewItem = null;
+                var previewData = null;
 
                 function getPage() {
                     return document.querySelector("#DispatcharrSearchPage");
@@ -72,15 +167,18 @@
                     var resultsEl = page.querySelector("#DispatcharrResults");
 
                     if (!query) {
+                        page.querySelector("#DispatcharrResultsCount").textContent = "0 found";
                         resultsEl.innerHTML = "<p>Enter a title to search.</p>";
                         return;
                     }
 
                     resultsEl.innerHTML = "<p>Searching...</p>";
+                    page.querySelector("#DispatcharrResultsCount").textContent = "Searching...";
 
                     ApiClient.getJSON(ApiClient.getUrl("Dispatcharr/Search", { query: query }))
                         .then(function (data) {
                             resultsEl.innerHTML = "";
+                            page.querySelector("#DispatcharrResultsCount").textContent = (data.items && data.items.length ? data.items.length : 0) + " found";
 
                             if (!data.items || data.items.length === 0) {
                                 resultsEl.innerHTML = "<p>No results.</p>";
@@ -97,13 +195,40 @@
 
                                 var title = document.createElement("div");
                                 title.className = "title";
-                                title.textContent = displayLabel(item);
+                                title.textContent = compactLabel(item);
 
                                 card.appendChild(img);
                                 card.appendChild(title);
 
+                                var links = document.createElement("div");
+                                links.className = "links";
+
+                                var imdbButton = document.createElement("button");
+                                imdbButton.type = "button";
+                                imdbButton.className = "emby-button";
+                                imdbButton.textContent = "IMDb";
+                                imdbButton.addEventListener("click", function (e) {
+                                    e.stopPropagation();
+                                    openExternalLookup("imdb", item);
+                                });
+                                links.appendChild(imdbButton);
+
+                                if (item.type && item.type !== "movie") {
+                                    var tmdbButton = document.createElement("button");
+                                    tmdbButton.type = "button";
+                                    tmdbButton.className = "emby-button";
+                                    tmdbButton.textContent = "TMDb";
+                                    tmdbButton.addEventListener("click", function (e) {
+                                        e.stopPropagation();
+                                        openExternalLookup("tmdb", item);
+                                    });
+                                    links.appendChild(tmdbButton);
+                                }
+
+                                card.appendChild(links);
+
                                 card.addEventListener("click", function () {
-                                    playItem(item);
+                                    openPreview(item);
                                 });
 
                                 resultsEl.appendChild(card);
@@ -115,19 +240,44 @@
                         });
                 }
 
-                function displayLabel(item) {
+                function compactLabel(item) {
                     var typeLabel = item.type && item.type !== "movie" ? " [" + item.type + "]" : "";
-                    return item.year ? (item.title + " (" + item.year + ")" + typeLabel) : (item.title + typeLabel);
+                    var base = item.year ? (item.title + " (" + item.year + ")" + typeLabel) : (item.title + typeLabel);
+                    var confidence = item.confidence ? (" · " + item.confidence + (item.confidenceScore ? " " + Math.round(item.confidenceScore * 100) + "%" : "")) : "";
+                    return base + confidence;
                 }
 
-                function playItem(item) {
-                    var page = getPage();
-                    page.querySelector("#DispatcharrPlayer").style.display = "none";
-                    var resultsEl = page.querySelector("#DispatcharrResults");
+                function openExternalLookup(service, item) {
+                    var title = encodeURIComponent(item.title || "");
+                    var year = item.year ? encodeURIComponent(item.year) : "";
+                    var url;
 
+                    if (service === "tmdb") {
+                        url = "https://www.themoviedb.org/search?query=" + title;
+                        if (year) {
+                            url += "&year=" + year;
+                        }
+                    } else {
+                        url = "https://www.imdb.com/find/?q=" + title;
+                        if (year) {
+                            url += "&s=tt&ttype=ft&ref_=fn_ft&year=" + year;
+                        }
+                    }
+
+                    window.open(url, "_blank", "noopener,noreferrer");
+                }
+
+                function openPreview(item) {
+                    previewItem = item;
+                    previewData = null;
+                    var modal = getPage().querySelector("#DispatcharrModal");
+                    modal.style.display = "flex";
+                    modal.setAttribute("aria-hidden", "false");
+
+                    setModalContent(item, null, "Loading details...");
                     ApiClient.ajax({
                         type: "POST",
-                        url: ApiClient.getUrl("Dispatcharr/Save"),
+                        url: ApiClient.getUrl("Dispatcharr/Preview"),
                         contentType: "application/json",
                         data: JSON.stringify({
                             contentId: item.contentId,
@@ -137,17 +287,81 @@
                             searchQuery: getQuery()
                         })
                     }).then(function (result) {
+                        previewData = result;
+                        setModalContent(item, result, null);
+                    }).catch(function (err) {
+                        console.error("Dispatcharr preview failed", err);
+                        setModalContent(item, null, "Could not load preview details.");
+                    });
+                }
+
+                function setModalContent(item, data, statusText) {
+                    var modal = getPage().querySelector("#DispatcharrModal");
+                    var poster = modal.querySelector("#DispatcharrModalPoster");
+                    var title = modal.querySelector("#DispatcharrModalTitle");
+                    var meta = modal.querySelector("#DispatcharrModalMeta");
+
+                    poster.src = item.posterUrl || "";
+                    title.textContent = (data && data.details && data.details.title) ? data.details.title : (item.title || "");
+
+                    if (statusText) {
+                        meta.textContent = statusText;
+                        return;
+                    }
+
+                    var details = data && data.details ? data.details : null;
+                    var lines = [];
+                    if (item.year) { lines.push(item.year); }
+                    if (details && details.status) { lines.push(details.status); }
+                    if (details && details.releaseDate) { lines.push(details.releaseDate); }
+                    if (details && details.firstAirDate) { lines.push(details.firstAirDate); }
+                    if (details && details.runtime) { lines.push(details.runtime + " min"); }
+                    meta.textContent = lines.join(" · ");
+                }
+
+                function closePreview() {
+                    var modal = getPage().querySelector("#DispatcharrModal");
+                    modal.style.display = "none";
+                    modal.setAttribute("aria-hidden", "true");
+                    previewItem = null;
+                    previewData = null;
+                }
+
+                function savePreview() {
+                    if (!previewItem) {
+                        return;
+                    }
+
+                    var page = getPage();
+                    var resultsEl = page.querySelector("#DispatcharrResults");
+                    var saveTitle = (previewData && previewData.details && previewData.details.title) ? previewData.details.title : previewItem.title;
+                    var saveItem = {
+                        contentId: previewItem.contentId,
+                        uuid: previewItem.uuid,
+                        title: saveTitle,
+                        type: previewItem.type || "movie",
+                        searchQuery: getQuery()
+                    };
+
+                    resultsEl.innerHTML = "<p>Saving...</p>";
+
+                    ApiClient.ajax({
+                        type: "POST",
+                        url: ApiClient.getUrl("Dispatcharr/Save"),
+                        contentType: "application/json",
+                        data: JSON.stringify(saveItem)
+                    }).then(function (result) {
+                        closePreview();
                         var message = result.message || "Saved successfully.";
                         var path = result.path ? ("<br/><small>" + result.path + "</small>") : "";
                         var confidence = result.confidence ? ("<br/><small>Match: " + result.confidence + (result.confidenceScore ? " (" + Math.round(result.confidenceScore * 100) + "%)" : "") + "</small>") : "";
                         var warning = result.matchWarning ? ("<br/><small>" + result.matchWarning + "</small>") : "";
                         resultsEl.innerHTML = "<p>" + message + path + confidence + warning + "</p>";
-                    })
-                        .catch(function (err) {
-                            console.error("Dispatcharr save failed details", err);
-                            console.error("Dispatcharr save failed", err);
-                            resultsEl.innerHTML = "<p>Save failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
-                        });
+                    }).catch(function (err) {
+                        console.error("Dispatcharr save failed details", err);
+                        setModalContent(previewItem, previewData, "Save failed.");
+                        resultsEl.innerHTML = "<p>Save failed. Check the plugin configuration and Dispatcharr connectivity.</p>";
+                    });
                 }
 
                 function wirePage() {
@@ -166,6 +380,13 @@
                         if (e.key === "Enter") {
                             e.preventDefault();
                             doSearch();
+                        }
+                    });
+                    page.querySelector("#DispatcharrModalCancel").addEventListener("click", closePreview);
+                    page.querySelector("#DispatcharrModalPoster").addEventListener("click", savePreview);
+                    page.querySelector("#DispatcharrModal").addEventListener("click", function (e) {
+                        if (e.target && e.target.id === "DispatcharrModal") {
+                            closePreview();
                         }
                     });
 

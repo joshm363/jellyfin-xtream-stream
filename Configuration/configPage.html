@@ -54,6 +54,11 @@
                     </div>
 
                     <div class="inputContainer">
+                        <input id="TmdbApiKey" name="TmdbApiKey" type="text" is="emby-input" label="TMDb API key (optional)" />
+                        <div class="fieldDescription">Used to show a details modal before save.</div>
+                    </div>
+
+                    <div class="inputContainer">
                         <input id="RequestTimeoutSeconds" name="RequestTimeoutSeconds" type="number" is="emby-input" label="Request timeout (seconds)" min="1" max="60" />
                     </div>
 
@@ -94,6 +99,7 @@
                         setFieldValue("#MovieMediaLibraryPath", config.MovieMediaLibraryPath || "");
                         setFieldValue("#TvMediaLibraryPath", config.TvMediaLibraryPath || "");
                         setFieldValue("#ProfileId", config.ProfileId || "");
+                        setFieldValue("#TmdbApiKey", config.TmdbApiKey || "");
                         setFieldValue("#RequestTimeoutSeconds", config.RequestTimeoutSeconds || 10);
                     })
                     .catch(function (err) {
@@ -131,6 +137,7 @@
                         config.MovieMediaLibraryPath = page.querySelector("#MovieMediaLibraryPath").value;
                         config.TvMediaLibraryPath = page.querySelector("#TvMediaLibraryPath").value;
                         config.ProfileId = page.querySelector("#ProfileId").value;
+                        config.TmdbApiKey = page.querySelector("#TmdbApiKey").value;
                         config.RequestTimeoutSeconds = parseInt(page.querySelector("#RequestTimeoutSeconds").value, 10) || 10;
 
                         return ApiClient.updatePluginConfiguration(DispatcharrConfig.pluginUniqueId, config);
