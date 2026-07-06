@@ -89,6 +89,19 @@ function resolveStreamId(item) {
   return null
 }
 
+function resolveBestEpisodeStreamId(item) {
+  const direct = resolveStreamId(item)
+  if (direct) return direct
+
+  const providerList = Array.isArray(item?.providers) ? item.providers : []
+  for (const provider of providerList) {
+    const candidate = resolveStreamId(provider)
+    if (candidate) return candidate
+  }
+
+  return null
+}
+
 function resolveSeasonNumber(item) {
   const value = item?.seasonNumber ?? item?.season_number ?? item?.season ?? item?.seasonNo
   const parsed = Number(value)
@@ -105,6 +118,11 @@ function resolveEpisodeTitle(item, episodeNumber) {
   const rawTitle = item?.title || item?.name || item?.displayTitle
   if (rawTitle) return sanitizeSegment(rawTitle)
   return `episode${episodeNumber ?? 1}`
+}
+
+function buildPlaceholderEpisodeUrl({ baseUrl, episodeUuid, profileId, m3uAccountId }) {
+  const cleanBase = String(baseUrl ?? '').replace(/\/+$/, '')
+  return `${cleanBase}/proxy/vod/episode/${episodeUuid}/${profileId}?m3u_account_id=${m3uAccountId}&stream_id=placeholder`
 }
 
 function joinLibraryPath(basePath, ...segments) {
@@ -319,20 +337,22 @@ function App() {
       const savedPaths = []
       for (const [seasonNumber, seasonEpisodes] of groupedEpisodes.entries()) {
         for (const currentEpisode of seasonEpisodes) {
-          const episodeStreamId = resolveStreamId(currentEpisode)
-          if (!episodeStreamId) {
-            setStatus('Save failed: no episode stream id found')
-            return null
-          }
-
+          const episodeStreamId = resolveBestEpisodeStreamId(currentEpisode)
           const episodeNumber = resolveEpisodeNumber(currentEpisode) ?? 1
-          const proxyUrl = buildEpisodeProxyUrl({
-            baseUrl,
-            episodeUuid: currentEpisode.uuid,
-            profileId: config.profileId,
-            m3uAccountId: config.m3uAccountId,
-            streamId: episodeStreamId,
-          })
+          const proxyUrl = episodeStreamId
+            ? buildEpisodeProxyUrl({
+              baseUrl,
+              episodeUuid: currentEpisode.uuid,
+              profileId: config.profileId,
+              m3uAccountId: config.m3uAccountId,
+              streamId: episodeStreamId,
+            })
+            : buildPlaceholderEpisodeUrl({
+              baseUrl,
+              episodeUuid: currentEpisode.uuid,
+              profileId: config.profileId,
+              m3uAccountId: config.m3uAccountId,
+            })
           const episodeFileName = `${resolveEpisodeTitle(currentEpisode, episodeNumber)}.strm`
           const filePath = joinLibraryPath(
             config.tvLibraryPath,
