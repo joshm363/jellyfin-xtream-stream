@@ -55,6 +55,32 @@ beforeEach(() => {
       }), { status: 200 })
     }
 
+    if (url === '/api/details?contentId=3071&uuid=series-uuid-1&type=series') {
+      return new Response(JSON.stringify({
+        providerInfo: { tmdb_id: '12345' },
+        details: {
+          name: 'Cars on the Road',
+          overview: 'Test series overview',
+          first_air_date: '2022-09-08',
+          poster_path: '/series.jpg',
+        },
+      }), { status: 200 })
+    }
+
+    if (url === '/api/episodes?contentId=3071') {
+      return new Response(JSON.stringify({
+        episodes: [
+          {
+            uuid: 'episode-1',
+            streamIds: [9001],
+            seasonNumber: 1,
+            episodeNumber: 1,
+            title: 'The Big Day',
+          },
+        ],
+      }), { status: 200 })
+    }
+
     if (url === '/api/config' && options?.method === 'PUT') {
       return new Response(JSON.stringify({
         dispatcharrUrl: 'http://saved-dispatcharr',
@@ -96,5 +122,75 @@ describe('App', () => {
     expect(screen.getByText('Details loaded')).toBeInTheDocument()
     expect(screen.getByAltText('Selected title poster')).toHaveAttribute('src', 'https://image.tmdb.org/t/p/w500/cars.jpg')
     expect(screen.getAllByText('2006').length).toBeGreaterThan(1)
+  })
+
+  it('loads series episodes for the selected item', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+      if (url === '/api/config' && (!options || options.method === undefined)) {
+        return new Response(JSON.stringify({
+          dispatcharrUrl: 'http://dispatcharr',
+          dispatcharrApiKey: '',
+          jellyfinUrl: 'http://jellyfin',
+          jellyfinApiKey: '',
+          profileId: 'profile-9',
+          movieLibraryPath: 'M:\\Movies',
+          tvLibraryPath: 'M:\\Series',
+          m3uAccountId: 4,
+        }), { status: 200 })
+      }
+
+      if (url === '/api/search?q=Cars') {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              type: 'series',
+              title: 'Cars on the Road',
+              year: 2022,
+              uuid: 'series-uuid-1',
+              providerIds: { contentId: 3071 },
+              content_type: 'series',
+              tmdbTitle: 'Cars on the Road',
+              posterUrl: 'https://example.com/series.jpg',
+            },
+          ],
+        }), { status: 200 })
+      }
+
+      if (url === '/api/details?contentId=3071&uuid=series-uuid-1&type=series') {
+        return new Response(JSON.stringify({
+          providerInfo: { tmdb_id: '12345' },
+          details: {
+            name: 'Cars on the Road',
+            overview: 'Test series overview',
+            first_air_date: '2022-09-08',
+            poster_path: '/series.jpg',
+          },
+        }), { status: 200 })
+      }
+
+      if (url === '/api/episodes?contentId=3071') {
+        return new Response(JSON.stringify({
+          episodes: [
+            {
+              uuid: 'episode-1',
+              streamIds: [9001],
+              seasonNumber: 1,
+              episodeNumber: 1,
+              title: 'The Big Day',
+            },
+          ],
+        }), { status: 200 })
+      }
+
+      return new Response(null, { status: 404 })
+    }))
+
+    render(<App />)
+
+    await screen.findByText('1 found')
+    screen.getByRole('button', { name: /cars on the road/i }).click()
+
+    expect(await screen.findByRole('heading', { name: 'Cars on the Road' })).toBeInTheDocument()
+    expect(screen.getByText('Details loaded')).toBeInTheDocument()
   })
 })

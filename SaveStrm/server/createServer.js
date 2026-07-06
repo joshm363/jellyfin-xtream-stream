@@ -92,7 +92,8 @@ export function createServer({ configPath } = {}) {
     const config = await store.readConfig()
     const contentId = Number(req.query.contentId ?? 0)
     const uuid = String(req.query.uuid ?? '').trim()
-    const type = String(req.query.type ?? 'movie').trim().toLowerCase() === 'series' ? 'series' : 'movie'
+    const rawType = String(req.query.type ?? 'movie').trim().toLowerCase()
+    const type = ['series', 'tv', 'show', 'season', 'episode'].includes(rawType) ? 'series' : 'movie'
 
     if (!contentId || !uuid) {
       res.status(400).json({ error: 'Missing contentId or uuid' })
@@ -106,7 +107,7 @@ export function createServer({ configPath } = {}) {
     }
 
     const providerUrl = `${baseUrl}/api/vod/${type === 'movie' ? 'movies' : 'series'}/${contentId}/provider-info/`
-    console.log(`[SaveStrm] details request contentId=${contentId} uuid=${uuid} type=${type}`)
+    console.log(`[SaveStrm] details request contentId=${contentId} uuid=${uuid} rawType=${rawType || 'empty'} type=${type}`)
     console.log(`[SaveStrm] provider-info url ${providerUrl}`)
 
     const providerResponse = await fetch(providerUrl, { headers })
@@ -123,8 +124,10 @@ export function createServer({ configPath } = {}) {
     }
 
     const tmdbKey = config.tmdbApiKey || hardcodedTmdbApiKey
-    const endpoint = type === 'series' ? 'tv' : 'movie'
+    const providerType = String(providerInfo.type ?? providerInfo.media_type ?? providerInfo.content_type ?? '').toLowerCase()
+    const endpoint = type === 'series' || providerType === 'series' || providerType === 'tv' ? 'tv' : 'movie'
     const tmdbUrl = `https://api.themoviedb.org/3/${endpoint}/${encodeURIComponent(tmdbId)}?api_key=${encodeURIComponent(tmdbKey)}`
+    console.log(`[SaveStrm] tmdb lookup endpoint=${endpoint} tmdbId=${tmdbId} providerType=${providerType || 'unknown'}`)
     console.log(`[SaveStrm] tmdb url ${tmdbUrl}`)
     const tmdbResponse = await fetch(tmdbUrl)
     if (!tmdbResponse.ok) {
@@ -136,10 +139,39 @@ export function createServer({ configPath } = {}) {
     res.json({ providerInfo, details })
   })
 
+  app.get('/api/episodes', async (req, res) => {
+    const config = await store.readConfig()
+    const contentId = Number(req.query.contentId ?? 0)
+    if (!contentId) {
+      res.status(400).json({ error: 'Missing contentId' })
+      return
+    }
+
+    const baseUrl = String(config.dispatcharrUrl ?? '').replace(/\/+$/, '')
+    const headers = {}
+    if (config.dispatcharrApiKey) {
+      headers.Authorization = `ApiKey ${config.dispatcharrApiKey}`
+    }
+
+    const episodesUrl = `${baseUrl}/api/vod/series/${contentId}/episodes`
+    console.log(`[SaveStrm] episodes url ${episodesUrl}`)
+    const response = await fetch(episodesUrl, { headers })
+    if (!response.ok) {
+      res.status(response.status).json({ error: 'Failed to load episodes' })
+      return
+    }
+
+    const payload = await response.json()
+    const episodes = Array.isArray(payload) ? payload : (payload.episodes ?? payload.results ?? payload.data ?? [])
+    res.json({ episodes })
+  })
+
   app.post('/api/save', async (req, res) => {
     const title = String(req.body?.title ?? '').trim()
     const filePath = String(req.body?.filePath ?? '').trim()
     const streamUrl = String(req.body?.streamUrl ?? '').trim()
+    const jellyfinUrl = String(req.body?.jellyfinUrl ?? '').trim()
+    const jellyfinApiKey = String(req.body?.jellyfinApiKey ?? '').trim()
 
     if (!title || !filePath || !streamUrl) {
       res.status(400).json({ error: 'Missing title, filePath, or streamUrl' })
@@ -147,9 +179,37 @@ export function createServer({ configPath } = {}) {
     }
 
     try {
-      await fs.mkdir(path.dirname(filePath), { recursive: true })
-      await fs.writeFile(filePath, `${streamUrl}\n`, 'utf8')
-      res.json({ success: true, filePath })
+      const normalizedFilePath = filePath.replace(/\\/g, path.sep)
+      await fs.mkdir(path.dirname(normalizedFilePath), { recursive: true })
+      await fs.writeFile(normalizedFilePath, `${streamUrl}\n`, 'utf8')
+
+      let jellyfinRefresh = null
+      if (jellyfinUrl && jellyfinApiKey) {
+        try {
+          const refreshUrl = `${jellyfinUrl.replace(/\/+$/, '')}/Library/Refresh`
+          const refreshResponse = await fetch(refreshUrl, {
+            method: 'POST',
+            headers: {
+              'X-MediaBrowser-Token': jellyfinApiKey,
+            },
+          })
+          jellyfinRefresh = {
+            ok: refreshResponse.ok,
+            status: refreshResponse.status,
+          }
+          if (!refreshResponse.ok) {
+            console.warn('[SaveStrm] Jellyfin refresh returned non-OK', jellyfinRefresh)
+          }
+        } catch (error) {
+          console.warn('[SaveStrm] Jellyfin refresh failed', error)
+          jellyfinRefresh = {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        }
+      }
+
+      res.json({ success: true, filePath: normalizedFilePath, jellyfinRefresh })
     } catch (error) {
       console.error('[SaveStrm] Failed to write strm file', { filePath, error })
       res.status(500).json({

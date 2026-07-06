@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { loadConfig, loadItemDetails, saveConfig, saveItem, searchDispatcharr } from './lib/configApi'
+import { loadConfig, loadItemDetails, loadSeriesEpisodes, saveConfig, saveItem, searchDispatcharr } from './lib/configApi'
 import { buildEpisodeProxyUrl, buildMovieProxyUrl, sanitizeSegment } from './lib/strm'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -63,15 +63,55 @@ function resolveContentId(item) {
   return item?.contentId ?? item?.providerIds?.contentId ?? item?.id ?? 0
 }
 
+function resolveContentType(item) {
+  const rawType = String(item?.type ?? item?.content_type ?? item?.contentType ?? item?.media_type ?? item?.providerIds?.type ?? 'movie')
+    .trim()
+    .toLowerCase()
+  return ['series', 'tv', 'show', 'season', 'episode'].includes(rawType) ? 'series' : 'movie'
+}
+
 function resolveStreamId(item) {
+  if (typeof item?.stream_id === 'number') return item.stream_id
+  if (typeof item?.stream_id === 'string' && item.stream_id.trim()) return Number(item.stream_id)
   if (typeof item?.streamId === 'number') return item.streamId
   if (typeof item?.streamId === 'string' && item.streamId.trim()) return Number(item.streamId)
   if (Array.isArray(item?.streamIds) && item.streamIds.length > 0) return item.streamIds[0]
+  if (Array.isArray(item?.providers) && item.providers.length > 0) {
+    for (const provider of item.providers) {
+      const providerStreamId = resolveStreamId(provider)
+      if (providerStreamId) return providerStreamId
+    }
+  }
   if (typeof item?.providerInfo?.stream_id === 'number') return item.providerInfo.stream_id
   if (typeof item?.providerInfo?.streamId === 'number') return item.providerInfo.streamId
   if (typeof item?.providerIds?.streamId === 'number') return item.providerIds.streamId
   if (typeof item?.providerIds?.stream_id === 'number') return item.providerIds.stream_id
   return null
+}
+
+function resolveSeasonNumber(item) {
+  const value = item?.seasonNumber ?? item?.season_number ?? item?.season ?? item?.seasonNo
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function resolveEpisodeNumber(item) {
+  const value = item?.episodeNumber ?? item?.episode_number ?? item?.episode ?? item?.episodeNo
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function resolveEpisodeTitle(item, episodeNumber) {
+  const rawTitle = item?.title || item?.name || item?.displayTitle
+  if (rawTitle) return sanitizeSegment(rawTitle)
+  return `episode${episodeNumber ?? 1}`
+}
+
+function joinLibraryPath(basePath, ...segments) {
+  const parts = [basePath, ...segments]
+    .map((segment) => String(segment ?? '').trim().replace(/\\+/g, '/'))
+    .filter(Boolean)
+  return parts.join('/')
 }
 
 function resolveProviderStreamId(details) {
@@ -110,10 +150,12 @@ function App() {
   const [status, setStatus] = useState('Ready')
   const [selected, setSelected] = useState(null)
   const [selectedDetails, setSelectedDetails] = useState(null)
+  const [selectedEpisodes, setSelectedEpisodes] = useState([])
   const [detailsState, setDetailsState] = useState('Select an item to view details')
   const [configState, setConfigState] = useState('Loading config...')
   const [route, setRoute] = useState(window.location.hash || '#/')
   const [searchState, setSearchState] = useState('Loaded sample results')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const onHashChange = () => setRoute(window.location.hash || '#/')
@@ -165,6 +207,7 @@ function App() {
   useEffect(() => {
     if (!selected) {
       setSelectedDetails(null)
+      setSelectedEpisodes([])
       setDetailsState('Select an item to view details')
       return undefined
     }
@@ -172,17 +215,31 @@ function App() {
     let canceled = false
     setDetailsState('Loading details...')
     setSelectedDetails(null)
+    setSelectedEpisodes([])
 
     loadItemDetails(selected)
-      .then((payload) => {
+      .then((detailsPayload) => {
         if (canceled) return
-        setSelectedDetails(payload)
-        setDetailsState(payload?.details ? 'Details loaded' : 'No TMDb details found')
+        setSelectedDetails(detailsPayload)
+        setDetailsState(detailsPayload?.details ? 'Details loaded' : 'No TMDb details found')
       })
       .catch(() => {
         if (canceled) return
         setDetailsState('Details failed to load')
       })
+
+    if (selected.type === 'series') {
+      loadSeriesEpisodes(selected)
+        .then((episodesPayload) => {
+          if (canceled) return
+          setSelectedEpisodes(Array.isArray(episodesPayload?.episodes) ? episodesPayload.episodes : [])
+        })
+        .catch(() => {
+          if (canceled) return
+          setSelectedEpisodes([])
+          setDetailsState((current) => (current === 'Loading details...' ? 'Episodes failed to load' : current))
+        })
+    }
 
     return () => {
       canceled = true
@@ -193,61 +250,113 @@ function App() {
     setSelected({
       ...item,
       contentId: resolveContentId(item),
+      type: resolveContentType(item),
     })
   }
 
   const saveSelection = async (item) => {
-    const detailTitle = resolveDetailTitle(selectedDetails?.details)
-    const saveTitle = detailTitle || resolveItemTitle(item)
-    setStatus(`Saving ${saveTitle}...`)
+    setSaving(true)
+    try {
+      const detailTitle = resolveDetailTitle(selectedDetails?.details)
+      const saveTitle = detailTitle || resolveItemTitle(item)
+      setStatus(`Saving ${saveTitle}...`)
 
-    const normalizedTitle = sanitizeSegment(saveTitle)
-    const baseUrl = config.dispatcharrUrl.replace(/\/+$/, '')
-    const isSeries = item.type === 'series' || Array.isArray(item.episodes) || Array.isArray(item.seasons)
-    const streamId = isSeries ? resolveStreamId(item) : resolveProviderStreamId(selectedDetails)
+      const normalizedTitle = sanitizeSegment(saveTitle)
+      const baseUrl = config.dispatcharrUrl.replace(/\/+$/, '')
+      const isSeries = item.type === 'series' || Array.isArray(item.episodes) || Array.isArray(item.seasons) || selectedEpisodes.length > 0
+      const streamId = isSeries ? resolveStreamId(item) : resolveProviderStreamId(selectedDetails)
 
-    if (!isSeries) {
-      if (!streamId) {
-        setStatus('Save failed: no stream id found')
+      if (!isSeries) {
+        if (!streamId) {
+          setStatus('Save failed: no stream id found')
+          return null
+        }
+        const proxyUrl = buildMovieProxyUrl({
+          baseUrl,
+          uuid: item.uuid,
+          profileId: config.profileId,
+          streamId,
+        })
+        const movieFileName = `${normalizedTitle.toLowerCase()}.strm`
+        const filePath = joinLibraryPath(config.movieLibraryPath, normalizedTitle, movieFileName)
+        await saveItem({
+          title: normalizedTitle,
+          filePath,
+          streamUrl: proxyUrl,
+          jellyfinUrl: config.jellyfinUrl,
+          jellyfinApiKey: config.jellyfinApiKey,
+        })
+        setStatus(`Saved ${filePath}`)
+        setSelected(null)
+        return { path: filePath, proxyUrl }
+      }
+
+      let episodes = selectedEpisodes.length > 0 ? selectedEpisodes : (Array.isArray(item.episodes) ? item.episodes : [])
+      let episode = episodes[0] ?? null
+      if (!episode) {
+        try {
+          const episodePayload = await loadSeriesEpisodes(item)
+          const fetchedEpisodes = Array.isArray(episodePayload?.episodes) ? episodePayload.episodes : []
+          setSelectedEpisodes(fetchedEpisodes)
+          episodes = fetchedEpisodes
+          episode = episodes[0] ?? null
+        } catch {
+          episode = null
+        }
+      }
+      if (!episode) {
+        setStatus('Save failed: no episode data found')
         return null
       }
-      const proxyUrl = buildMovieProxyUrl({
-        baseUrl,
-        uuid: item.uuid,
-        profileId: config.profileId,
-        streamId,
-      })
-      const filePath = `${config.movieLibraryPath.replace(/\\+$/, '')}\\${normalizedTitle}\\${normalizedTitle}.strm`
-      await saveItem({ title: normalizedTitle, filePath, streamUrl: proxyUrl })
-      setStatus(`Saved ${filePath}`)
+
+      const groupedEpisodes = episodes.reduce((acc, current) => {
+        const seasonNumber = resolveSeasonNumber(current) ?? 1
+        if (!acc.has(seasonNumber)) acc.set(seasonNumber, [])
+        acc.get(seasonNumber).push(current)
+        return acc
+      }, new Map())
+
+      const savedPaths = []
+      for (const [seasonNumber, seasonEpisodes] of groupedEpisodes.entries()) {
+        for (const currentEpisode of seasonEpisodes) {
+          const episodeStreamId = resolveStreamId(currentEpisode)
+          if (!episodeStreamId) {
+            setStatus('Save failed: no episode stream id found')
+            return null
+          }
+
+          const episodeNumber = resolveEpisodeNumber(currentEpisode) ?? 1
+          const proxyUrl = buildEpisodeProxyUrl({
+            baseUrl,
+            episodeUuid: currentEpisode.uuid,
+            profileId: config.profileId,
+            m3uAccountId: config.m3uAccountId,
+            streamId: episodeStreamId,
+          })
+          const episodeFileName = `${resolveEpisodeTitle(currentEpisode, episodeNumber)}.strm`
+          const filePath = joinLibraryPath(
+            config.tvLibraryPath,
+            normalizedTitle,
+            `Season ${seasonNumber}`,
+            episodeFileName,
+          )
+          await saveItem({
+            title: normalizedTitle,
+            filePath,
+            streamUrl: proxyUrl,
+            jellyfinUrl: config.jellyfinUrl,
+            jellyfinApiKey: config.jellyfinApiKey,
+          })
+          savedPaths.push(filePath)
+        }
+      }
+
+      setStatus(`Saved ${savedPaths.length} episode file(s)`)
       setSelected(null)
-      return { path: filePath, proxyUrl }
+      return { paths: savedPaths }
+    } finally {
+      setSaving(false)
     }
-
-    const episode = item.episodes?.[0]
-    if (!episode) {
-      setStatus('Save failed: no episode data found')
-      return null
-    }
-
-    const episodeStreamId = resolveStreamId(episode)
-    if (!episodeStreamId) {
-      setStatus('Save failed: no episode stream id found')
-      return null
-    }
-
-    const proxyUrl = buildEpisodeProxyUrl({
-      baseUrl,
-      episodeUuid: episode.uuid,
-      profileId: config.profileId,
-      m3uAccountId: config.m3uAccountId,
-      streamId: episodeStreamId,
-    })
-    const filePath = `${config.tvLibraryPath.replace(/\\+$/, '')}\\${normalizedTitle}\\season ${episode.seasonNumber}\\${normalizedTitle} - S${String(episode.seasonNumber).padStart(2, '0')}E${String(episode.episodeNumber).padStart(2, '0')} - ${sanitizeSegment(episode.title)}.strm`
-    await saveItem({ title: normalizedTitle, filePath, streamUrl: proxyUrl })
-    setStatus(`Saved ${filePath}`)
-    setSelected(null)
-    return { path: filePath, proxyUrl }
   }
 
   const persistConfig = async () => {
@@ -269,14 +378,14 @@ function App() {
   }
 
   return (
-    <main className="shell">
+    <main className={`shell${saving ? ' is-busy' : ''}`}>
       <header className="topbar">
         <div>
           <p className="eyebrow">SaveStrm</p>
           <h1>Dispatcharr to Jellyfin .strm builder</h1>
         </div>
         <div className="topbar-actions">
-          <a href="#/settings" className="inline-link">Settings</a>
+          <a href="#/settings" className={`inline-link${saving ? ' is-disabled' : ''}`} aria-disabled={saving ? 'true' : 'false'} onClick={(event) => { if (saving) event.preventDefault() }}>Settings</a>
           <div className="status">{status}</div>
         </div>
       </header>
@@ -288,7 +397,7 @@ function App() {
         </div>
         <label className="search-row">
           Search
-          <input value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} disabled={saving} />
         </label>
         <div className="search-state">{searchState}</div>
         <div className="grid">
@@ -297,7 +406,8 @@ function App() {
               key={item.uuid}
               type="button"
               className="result"
-              onClick={() => openDetails(item)}
+              onClick={() => !saving && openDetails(item)}
+              disabled={saving}
             >
               {resolvePosterUrl(item) ? (
                 <img className="poster" src={resolvePosterUrl(item)} alt="" />
@@ -332,11 +442,18 @@ function App() {
               {selectedDetails?.details?.first_air_date && <span>{selectedDetails.details.first_air_date}</span>}
             </div>
             <div className="modal-actions">
-              <button type="button" onClick={() => setSelected(null)}>Cancel</button>
-              <button type="button" onClick={() => saveSelection(selected)}>Save</button>
+              <button type="button" onClick={() => setSelected(null)} disabled={saving}>Cancel</button>
+              <button type="button" onClick={() => saveSelection(selected)} disabled={saving}>Save</button>
             </div>
           </div>
         </section>
+      )}
+
+      {saving && (
+        <div className="saving-overlay" role="status" aria-live="polite" aria-label="Saving in progress">
+          <div className="saving-spinner" />
+          <span>Saving</span>
+        </div>
       )}
     </main>
   )

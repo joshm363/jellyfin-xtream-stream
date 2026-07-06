@@ -8,5 +8,5 @@ services:
       PORT: 3001
     volumes:
       - ./data:/app/data
-      - /path/to/media/libraries:/media
+      - /mnt/media:/media
     restart: unless-stopped

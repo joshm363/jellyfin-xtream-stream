@@ -34,15 +34,29 @@ export async function searchDispatcharr(query) {
 
 export async function loadItemDetails(item) {
   const contentId = item?.contentId ?? item?.providerIds?.contentId ?? item?.id ?? 0
+  const rawType = String(item?.type ?? item?.content_type ?? item?.contentType ?? item?.media_type ?? item?.providerIds?.type ?? 'movie')
+    .trim()
+    .toLowerCase()
+  const type = ['series', 'tv', 'show', 'season', 'episode'].includes(rawType) ? 'series' : 'movie'
   const params = new URLSearchParams({
     contentId: String(contentId),
     uuid: String(item.uuid ?? ''),
-    type: String(item.type ?? 'movie'),
+    type,
   })
 
   const response = await fetch(`/api/details?${params.toString()}`)
   if (!response.ok) {
     throw new Error('Failed to load item details')
+  }
+
+  return response.json()
+}
+
+export async function loadSeriesEpisodes(item) {
+  const contentId = item?.contentId ?? item?.providerIds?.contentId ?? item?.id ?? 0
+  const response = await fetch(`/api/episodes?contentId=${encodeURIComponent(String(contentId))}`)
+  if (!response.ok) {
+    throw new Error('Failed to load series episodes')
   }
 
   return response.json()

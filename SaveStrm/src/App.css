@@ -5,6 +5,15 @@
   color: #e8edf5;
 }
 
+.shell.is-busy {
+  pointer-events: none;
+  user-select: none;
+}
+
+.shell.is-busy .saving-overlay {
+  pointer-events: auto;
+}
+
 .topbar,
 .panel,
 .modal-card {
@@ -89,12 +98,14 @@ input {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 180px));
+  justify-content: start;
   gap: 12px;
   margin-top: 14px;
 }
 
 .result {
+  width: 180px;
   border: 1px solid #223043;
   background: #0f141d;
   border-radius: 10px;
@@ -184,10 +195,48 @@ img.poster {
   text-decoration: none;
 }
 
+.inline-link.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 button {
   border: 1px solid #2b3c52;
   background: #1c2532;
   color: #eef4ff;
   border-radius: 8px;
   padding: 10px 14px;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.saving-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  background: rgba(7, 10, 15, 0.7);
+  backdrop-filter: blur(2px);
+  color: #eef4ff;
+  z-index: 30;
+}
+
+.saving-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid #2b3c52;
+  border-top-color: #8ca3c9;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
