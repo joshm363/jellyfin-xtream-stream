@@ -133,8 +133,9 @@ function joinLibraryPath(basePath, ...segments) {
 }
 
 function buildTitleSidecarPath(basePath, title) {
-  const folderName = sanitizeSegment(title).toLowerCase()
-  return joinLibraryPath(basePath, folderName, `${folderName}.json`)
+  const folderName = sanitizeSegment(title)
+  const fileName = `${sanitizeSegment(title).toLowerCase()}.json`
+  return joinLibraryPath(basePath, folderName, fileName)
 }
 
 function resolveProviderStreamId(details) {

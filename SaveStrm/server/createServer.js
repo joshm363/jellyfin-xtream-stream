@@ -209,33 +209,11 @@ export function createServer({ configPath } = {}) {
         await fs.writeFile(normalizedSidecarPath, `${JSON.stringify(sidecarData, null, 2)}\n`, 'utf8')
       }
 
-      let jellyfinRefresh = null
-      if (jellyfinUrl && jellyfinApiKey) {
-        try {
-          const refreshUrl = `${jellyfinUrl.replace(/\/+$/, '')}/Library/Refresh`
-          const refreshResponse = await fetch(refreshUrl, {
-            method: 'POST',
-            headers: {
-              'X-MediaBrowser-Token': jellyfinApiKey,
-            },
-          })
-          jellyfinRefresh = {
-            ok: refreshResponse.ok,
-            status: refreshResponse.status,
-          }
-          if (!refreshResponse.ok) {
-            console.warn('[SaveStrm] Jellyfin refresh returned non-OK', jellyfinRefresh)
-          }
-        } catch (error) {
-          console.warn('[SaveStrm] Jellyfin refresh failed', error)
-          jellyfinRefresh = {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }
-        }
-      }
+      res.json({ success: true, filePath: normalizedFilePath, jellyfinRefresh: { queued: Boolean(jellyfinUrl && jellyfinApiKey) } })
 
-      res.json({ success: true, filePath: normalizedFilePath, jellyfinRefresh })
+      if (jellyfinUrl && jellyfinApiKey) {
+        void refreshJellyfinLibrary(jellyfinUrl, jellyfinApiKey)
+      }
     } catch (error) {
       console.error('[SaveStrm] Failed to write strm file', { filePath, error })
       res.status(500).json({
@@ -545,5 +523,27 @@ export function createServer({ configPath } = {}) {
   function buildPlaceholderEpisodeUrl({ baseUrl, episodeUuid, profileId, m3uAccountId }) {
     const cleanBase = String(baseUrl ?? '').replace(/\/+$/, '')
     return `${cleanBase}/proxy/vod/episode/${episodeUuid}/${profileId}?m3u_account_id=${m3uAccountId}&stream_id=placeholder`
+  }
+
+  async function refreshJellyfinLibrary(jellyfinUrl, jellyfinApiKey) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    try {
+      const refreshUrl = `${String(jellyfinUrl).replace(/\/+$/, '')}/Library/Refresh`
+      const refreshResponse = await fetch(refreshUrl, {
+        method: 'POST',
+        headers: {
+          'X-MediaBrowser-Token': jellyfinApiKey,
+        },
+        signal: controller.signal,
+      })
+      if (!refreshResponse.ok) {
+        console.warn('[SaveStrm] Jellyfin refresh returned non-OK', { status: refreshResponse.status })
+      }
+    } catch (error) {
+      console.warn('[SaveStrm] Jellyfin refresh failed', error)
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 }
