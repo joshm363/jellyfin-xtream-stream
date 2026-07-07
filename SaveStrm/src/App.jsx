@@ -142,11 +142,10 @@ function formatLocalDateTime(value) {
   if (!value) return 'never'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat(undefined, {
+  return date.toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'medium',
-    timeZoneName: 'short',
-  }).format(date)
+  })
 }
 
 function getBrowserTimeZone() {
