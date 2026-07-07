@@ -33,6 +33,10 @@ export function SettingsPage({ config, onChange, onSave, status }) {
           Jellyfin profile id
           <input value={config.profileId} onChange={(e) => update('profileId', e.target.value)} />
         </label>
+        <label className="span-2">
+          Cron schedule
+          <input value={config.cronSchedule} onChange={(e) => update('cronSchedule', e.target.value)} />
+        </label>
         <label>
           M3U account id
           <input value={config.m3uAccountId} onChange={(e) => update('m3uAccountId', Number(e.target.value))} />

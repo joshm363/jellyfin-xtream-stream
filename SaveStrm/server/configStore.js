@@ -7,6 +7,7 @@ export const defaultConfig = {
   jellyfinUrl: 'http://192.168.1.141:8096',
   jellyfinApiKey: '',
   profileId: 'profile-1',
+  cronSchedule: '0 */6 * * *',
   movieLibraryPath: '',
   tvLibraryPath: '',
   m3uAccountId: 4,

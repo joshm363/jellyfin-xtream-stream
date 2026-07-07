@@ -4,6 +4,7 @@
   "jellyfinUrl": "http://192.168.1.141:8096",
   "jellyfinApiKey": "ed136ea8e3b34cd286d3e3c012ace6ba",
   "profileId": "vod_1782497957814_9817",
+  "cronSchedule": "0 */6 * * *",
   "movieLibraryPath": "/c/Users/joshm/Documents/test",
   "tvLibraryPath": "/c/Users/joshm/Documents/test",
   "m3uAccountId": 4

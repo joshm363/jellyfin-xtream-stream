@@ -78,3 +78,21 @@ export async function saveItem(payload) {
 
   return response.json()
 }
+
+export async function loadCronStatus() {
+  const response = await fetch('/api/cron/status')
+  if (!response.ok) {
+    throw new Error('Failed to load cron status')
+  }
+
+  return response.json()
+}
+
+export async function runCronNow() {
+  const response = await fetch('/api/cron/run', { method: 'POST' })
+  if (!response.ok) {
+    throw new Error('Failed to run cron job')
+  }
+
+  return response.json()
+}

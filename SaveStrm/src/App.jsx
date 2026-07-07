@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { loadConfig, loadItemDetails, loadSeriesEpisodes, saveConfig, saveItem, searchDispatcharr } from './lib/configApi'
+import { loadConfig, loadCronStatus, loadItemDetails, loadSeriesEpisodes, runCronNow, saveConfig, saveItem, searchDispatcharr } from './lib/configApi'
 import { buildEpisodeProxyUrl, buildMovieProxyUrl, sanitizeSegment } from './lib/strm'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -132,6 +132,11 @@ function joinLibraryPath(basePath, ...segments) {
   return parts.join('/')
 }
 
+function buildTitleSidecarPath(basePath, title) {
+  const folderName = sanitizeSegment(title).toLowerCase()
+  return joinLibraryPath(basePath, folderName, `${folderName}.json`)
+}
+
 function resolveProviderStreamId(details) {
   const providerInfo = details?.providerInfo ?? details?.provider_info ?? {}
   const candidates = [
@@ -174,6 +179,9 @@ function App() {
   const [route, setRoute] = useState(window.location.hash || '#/')
   const [searchState, setSearchState] = useState('Loaded sample results')
   const [saving, setSaving] = useState(false)
+  const [cronStatus, setCronStatus] = useState(null)
+  const [cronState, setCronState] = useState('Loading cron status...')
+  const [cronBusy, setCronBusy] = useState(false)
 
   useEffect(() => {
     const onHashChange = () => setRoute(window.location.hash || '#/')
@@ -187,6 +195,26 @@ function App() {
 
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
+
+  useEffect(() => {
+    if (route !== '#/cron') return undefined
+    let canceled = false
+    setCronState('Loading cron status...')
+    loadCronStatus()
+      .then((payload) => {
+        if (canceled) return
+        setCronStatus(payload)
+        setCronState('Cron status loaded')
+      })
+      .catch(() => {
+        if (canceled) return
+        setCronStatus(null)
+        setCronState('Failed to load cron status')
+      })
+    return () => {
+      canceled = true
+    }
+  }, [route])
 
   const stats = useMemo(() => {
     const movies = results.filter((item) => item.type === 'movie').length
@@ -289,6 +317,7 @@ function App() {
           setStatus('Save failed: no stream id found')
           return null
         }
+        const sidecarPath = buildTitleSidecarPath(config.movieLibraryPath, normalizedTitle)
         const proxyUrl = buildMovieProxyUrl({
           baseUrl,
           uuid: item.uuid,
@@ -301,6 +330,14 @@ function App() {
           title: normalizedTitle,
           filePath,
           streamUrl: proxyUrl,
+          sidecarPath,
+          sidecarData: {
+            kind: 'movie',
+            title: saveTitle,
+            dispatcharrId: resolveContentId(item),
+            tmdbId: selectedDetails?.providerInfo?.tmdb_id ?? selectedDetails?.providerInfo?.tmdbId ?? null,
+            uuid: item.uuid,
+          },
           jellyfinUrl: config.jellyfinUrl,
           jellyfinApiKey: config.jellyfinApiKey,
         })
@@ -335,6 +372,7 @@ function App() {
       }, new Map())
 
       const savedPaths = []
+      const sidecarPath = buildTitleSidecarPath(config.tvLibraryPath, normalizedTitle)
       for (const [seasonNumber, seasonEpisodes] of groupedEpisodes.entries()) {
         for (const currentEpisode of seasonEpisodes) {
           const episodeStreamId = resolveBestEpisodeStreamId(currentEpisode)
@@ -364,6 +402,14 @@ function App() {
             title: normalizedTitle,
             filePath,
             streamUrl: proxyUrl,
+            sidecarPath,
+            sidecarData: {
+              kind: 'series',
+              title: saveTitle,
+              dispatcharrId: resolveContentId(item),
+              tmdbId: selectedDetails?.providerInfo?.tmdb_id ?? selectedDetails?.providerInfo?.tmdbId ?? null,
+              uuid: item.uuid,
+            },
             jellyfinUrl: config.jellyfinUrl,
             jellyfinApiKey: config.jellyfinApiKey,
           })
@@ -386,6 +432,20 @@ function App() {
     setConfigState('Config saved')
   }
 
+  const refreshCronStatus = async () => {
+    setCronBusy(true)
+    setCronState('Running cron job...')
+    try {
+      const payload = await runCronNow()
+      setCronStatus(payload)
+      setCronState('Cron run complete')
+    } catch {
+      setCronState('Cron run failed')
+    } finally {
+      setCronBusy(false)
+    }
+  }
+
   if (route === '#/settings') {
     return (
       <SettingsPage
@@ -394,6 +454,50 @@ function App() {
         onSave={persistConfig}
         status={configState}
       />
+      )
+  }
+
+  if (route === '#/cron') {
+    return (
+      <main className="shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">SaveStrm</p>
+            <h1>Cron status</h1>
+          </div>
+          <div className="topbar-actions">
+            <a href="#/" className="inline-link">Back</a>
+            <button type="button" onClick={refreshCronStatus} disabled={cronBusy || saving}>
+              {cronBusy ? 'Running...' : 'Run now'}
+            </button>
+          </div>
+        </header>
+
+        <section className="panel">
+          <div className="section-heading">
+            <h2>Status</h2>
+            <span>{cronState}</span>
+          </div>
+          <div className="details-meta">
+            <span>Last run: {cronStatus?.lastRunAt || 'never'}</span>
+            <span>Last manual run: {cronStatus?.lastManualRunAt || 'never'}</span>
+            <span>Checked: {cronStatus?.summary?.checked ?? 0}</span>
+            <span>Updated: {cronStatus?.summary?.updated ?? 0}</span>
+            <span>Broken: {cronStatus?.summary?.broken ?? 0}</span>
+            <span>Placeholders: {cronStatus?.summary?.placeholders ?? 0}</span>
+          </div>
+          <div className="cron-list">
+            {(cronStatus?.items ?? []).map((item) => (
+              <div key={item.path} className={`cron-item cron-${item.action}`}>
+                <strong>{item.title}</strong>
+                <span>{item.kind}</span>
+                <span>{item.action}</span>
+                <span>{item.message}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
     )
   }
 
@@ -406,6 +510,7 @@ function App() {
         </div>
         <div className="topbar-actions">
           <a href="#/settings" className={`inline-link${saving ? ' is-disabled' : ''}`} aria-disabled={saving ? 'true' : 'false'} onClick={(event) => { if (saving) event.preventDefault() }}>Settings</a>
+          <a href="#/cron" className={`inline-link${saving ? ' is-disabled' : ''}`} aria-disabled={saving ? 'true' : 'false'} onClick={(event) => { if (saving) event.preventDefault() }}>Cron</a>
           <div className="status">{status}</div>
         </div>
       </header>
