@@ -138,6 +138,21 @@ function buildTitleSidecarPath(basePath, title) {
   return joinLibraryPath(basePath, folderName, fileName)
 }
 
+function formatLocalDateTime(value) {
+  if (!value) return 'never'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+    timeZoneName: 'short',
+  }).format(date)
+}
+
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time'
+}
+
 function resolveProviderStreamId(details) {
   const providerInfo = details?.providerInfo ?? details?.provider_info ?? {}
   const candidates = [
@@ -480,8 +495,11 @@ function App() {
             <span>{cronState}</span>
           </div>
           <div className="details-meta">
-            <span>Last run: {cronStatus?.lastRunAt || 'never'}</span>
-            <span>Last manual run: {cronStatus?.lastManualRunAt || 'never'}</span>
+            <span>Timezone: {getBrowserTimeZone()}</span>
+          </div>
+          <div className="details-meta">
+            <span>Last run: {formatLocalDateTime(cronStatus?.lastRunAt)}</span>
+            <span>Last manual run: {formatLocalDateTime(cronStatus?.lastManualRunAt)}</span>
             <span>Checked: {cronStatus?.summary?.checked ?? 0}</span>
             <span>Updated: {cronStatus?.summary?.updated ?? 0}</span>
             <span>Broken: {cronStatus?.summary?.broken ?? 0}</span>
