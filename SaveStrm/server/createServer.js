@@ -4,7 +4,7 @@ import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createConfigStore, defaultConfig } from './configStore.js'
-import { sanitizeSegment } from '../src/lib/strm.js'
+import { buildEpisodeProxyUrl, sanitizeSegment } from '../src/lib/strm.js'
 
 const hardcodedTmdbApiKey = 'd76ceee8e6ed26b7ffc266f5b51a644d'
 
